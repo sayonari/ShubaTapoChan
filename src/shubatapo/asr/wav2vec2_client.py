@@ -95,20 +95,28 @@ class SlidingWindowASR(ASRClient):
         if not pcm_bytes:
             return
         arr = np.frombuffer(pcm_bytes, dtype=np.int16)
+        was_full_before = len(self._pcm_buf) >= self.window_samples
         self._pcm_buf = np.concatenate([self._pcm_buf, arr])
         self._total_samples_in += len(arr)
-        self._samples_since_last_infer += len(arr)
 
         # 窓がまだ埋まらない場合は待つ
         if len(self._pcm_buf) < self.window_samples:
             return
 
-        # stride ごとに推論
-        while self._samples_since_last_infer >= self.stride_samples:
-            self._samples_since_last_infer -= self.stride_samples
+        if not was_full_before:
+            # 窓が初めて満たされた瞬間 → ちょうど1回だけ推論し、stride カウンタをゼロから開始
             window = self._pcm_buf[-self.window_samples:]
             text = self._infer(window)
             self._handle_window_text(text)
+            self._samples_since_last_infer = 0
+        else:
+            # 以降は feed されたサンプル数だけ stride カウンタを進め、stride ごとに推論
+            self._samples_since_last_infer += len(arr)
+            while self._samples_since_last_infer >= self.stride_samples:
+                self._samples_since_last_infer -= self.stride_samples
+                window = self._pcm_buf[-self.window_samples:]
+                text = self._infer(window)
+                self._handle_window_text(text)
 
         # バッファは窓サイズ分だけ保持すれば十分（それ以前は不要）
         # 少しマージンを取って 2*window 以上には伸ばさない

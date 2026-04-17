@@ -93,8 +93,6 @@ while true; do
     last_seen="$latest"
     echo "[runner] 再生: $base"
     afplay "$LOCAL_DIR/$base"
-    sleep 0.2
-    afplay "$PROMPT_WAV"
   fi
   sleep 1
 done

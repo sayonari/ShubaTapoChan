@@ -1,63 +1,74 @@
 # TODO - タスクリスト
 
-## 優先度：高（次回セッションで着手）
+## 🔥 急務（次セッション最優先）
 
-### Phase 0: TAPO C220 物理セットアップ（人間作業）
-- [ ] Tapoアプリでカメラを初期設定し、Wi-Fi接続
-- [ ] Advanced Settings → Camera Account を作成（RTSP/pytapo用）
-- [ ] ルーターでTAPOのIPをDHCP予約（固定IP化）
-- [ ] 別PCから `ffprobe rtsp://<user>:<pass>@<ip>:554/stream1` で疎通確認
-- [ ] TAPO認証情報・IP・ファームウェアバージョンを `.env` に記載
-- [ ] GPU PCとTAPOが同一LANにあるか確認（異なればTailscale等の検討）
+### 相槌 (backchannel) による体感遅延削減
+ユーザ発話末検出時、LLM 処理を待たずに短い相槌を先行再生して遅延をマスクする。
+- [x] `src/shubatapo/dialog/fillers.py` : 相槌フレーズのTTSキャッシュモジュール (雛形)
+- [ ] `src/shubatapo/dialog/voice_loop.py` 改修:
+  - 起動時に `prepare_fillers()` で `/tmp/shubatapo_fillers/` にキャッシュ作成
+  - ASR 発話末確定時、LLM 呼び出しの**直前**にランダム1つを `turn_NNN_ack.wav` としてコピー
+  - 続けて LLM → TTS → `turn_NNN_main.wav` に出力
+- [ ] `scripts/mac_runner.sh` の再生ロジック改修:
+  - `.played` 履歴ファイルで未再生分を全て名前順ダウンロード・afplay
+  - 起動時に現在リモートの全 WAV を `.played` で初期化（古い応答の再生防止）
+  - 同時に「ターン取りこぼし」問題も解消される
+- [ ] 動作確認: 発話 → 相槌即時再生 → 応答がスムーズに続く
 
-### Phase 1: GPU PC環境構築
-- [ ] `.env` の内容確認（GPU PCログイン情報、TAPO認証情報）
-- [ ] GPU PCへSSH接続確認スクリプト作成
-- [ ] Python 3.12 venv 作成、主要依存のインストール（pytapo, av, transformers, torch, anthropic, webrtcvad-wheels, silero-vad, pyttsx3 or VOICEVOX client）
-- [ ] pytapoでTAPOへ接続し `moveMotor(0, 0)` 動作確認する smoke test
-- [ ] RTSPから10秒だけ録音しWAV保存するスクリプト（疎通確認）
+## 優先度：高
 
-### Phase 2: 音声入力パイプライン
-- [ ] RTSP → ffmpeg/PyAV → 16kHz mono PCM のストリーム実装
-- [ ] リングバッファ（3〜5秒）とVAD（webrtcvad）のゲート
-- [ ] 発話開始/終了イベントをコールバックで発火
+### ASR / TAPO 音声品質の根本改善
+- [ ] TAPO アプリでノイズキャンセリング off / マイクボリューム最大を試す
+- [ ] 50倍ゲインではなく、AGC (automatic gain control) を実装検討
+- [ ] VAD しきい値チューニング（低音量でも取りこぼさないか）
 
-### Phase 3: ASR組み込み
-- [ ] VAD_ASR_emoto の `mod_record.py` を参照しながら、ASRコアを切り出し（GPU対応）
-- [ ] スライディング窓（3s/200ms）でwav2vec2推論
-- [ ] 窓間出力の dedup ロジック実装（difflibベース）
-- [ ] 発話終了時に確定テキスト1本を発行するAPI
+### mac_runner 安定性改善
+- [ ] SSH ポーリングが時々スタックする問題の調査
+  - 候補: `rsync --partial --append`, `sshfs + fswatch`, `inotifywait` 経由
+- [ ] プロセス重複起動防止（単一インスタンスロック）
 
 ## 優先度：中
 
-### Phase 4: LLM接続
-- [ ] `LLMClient` 抽象インターフェイス定義
-- [ ] Claude API 実装（`claude-haiku-4-5` 既定、`messages.create` でストリーミング対応）
-- [ ] 会話履歴の保持（直近N往復）
+### TAPO スピーカ出力 (Phase 7)
+- [ ] go2rtc サイドカー構成の検証
+- [ ] C220 FW 1.2.2 Build 260311 で go2rtc tapo backchannel が動くか検証
+- [ ] 動かない場合の FW ダウングレード手順
 
-### Phase 5: 仮TTS + TAPOスピーカー出力
-- [ ] `TTSClient` 抽象インターフェイス定義
-- [ ] Phase A実装：pyttsx3 または VOICEVOX HTTP クライアント
-- [ ] pytapo Two-way audio 送信のラッパー実装
-- [ ] `send_audio.py` 相当でWAV1本の疎通確認
-- [ ] SPEAKING中のマイクゲート実装
+### 対話の自然さ
+- [ ] 会話履歴の上限（現在6ターン）の最適化
+- [ ] Claude Haiku → Sonnet に切り替えた場合の応答品質比較
+- [ ] Max プラン経由と API 経由の体感差
 
-### Phase 6: エンドツーエンド対話ループ
-- [ ] 状態機械 `IDLE/LISTENING/PROCESSING/SPEAKING` 実装
-- [ ] エンドツーエンド手動テスト（「こんにちは」→応答が聞こえるか）
-- [ ] 遅延計測（各ステージのタイムスタンプ記録）
+### LLM のマルチモーダル化
+- [ ] TAPO カメラ画像を Claude に渡す経路
+- [ ] 首振り (moveMotor) を LLM tool use で制御
+- [ ] 画像が必要そうなクエリの自動判定
 
-## 優先度：低（後続フェーズ、SPEC Phase 7）
+## 優先度：低（後続フェーズ）
 
-- [ ] Subaru_TTS 完成後、`TTSClient` Phase B 実装に差し替え
-- [ ] PTZ制御（pytapo moveMotor）を LLM tool use として公開
-- [ ] 起動ワード「おーいスバルさん」検出
-- [ ] 相槌タイミングモデル（BackChannel_sugimoto）統合
-- [ ] 話者交替モデル（TurnTaking_sugiyama）統合
-- [ ] TAPOのカメラ画像をマルチモーダルLLMに渡す経路
-- [ ] 待機モード / 詳細音声対話モードの切替
+- [ ] Subaru_TTS の長期学習完了モデル(50 epoch)への切替
+- [ ] 起動ワード「おーいスバルさん」検出 → 待機モード / 詳細対話モード切替
+- [ ] 相槌タイミングモデル (BackChannel_sugimoto) との統合 (ML 相槌)
+- [ ] 話者交替モデル (TurnTaking_sugiyama) との統合
+- [ ] エコーキャンセル (TAPO スピーカ出力復活時の自己発話再取り込み防止)
+- [ ] 複数ユーザ対応（話者分離）
 
 ## 完了済み
-- [x] 初期セットアップ（ShubaTapoChan プロジェクト構築、GitHub push）
+- [x] プロジェクト初期構築（ShubaTapoChan、GitHub push）
 - [x] PLAN / SPEC 初稿確定
-- [x] 関連資産の調査（Subaru_TTS、VAD_ASR_emoto、TAPO C220/pytapo）
+- [x] 関連資産調査（Subaru_TTS, VAD_ASR_emoto, TAPO C220/pytapo）
+- [x] TAPO C220 物理セットアップ（AP mode + 専用WiFiルータでグローバルIP化）
+- [x] GPU PC SSH 疎通、Python venv、PyTorch 2.6+cu124、CUDA 確認
+- [x] pytapo smoke test（moveMotor、getBasicInfo）
+- [x] RTSP 16kHz PCM ストリーム取得（ffmpeg subprocess）
+- [x] ASR: SlidingWindowASR (wav2vec2) → WhisperASR (faster-whisper + webrtcvad) にリプレース
+- [x] Whisper ハルシネーション対策（ブラックリスト + no_speech_threshold）
+- [x] 50倍ゲインでTAPO低音量対策
+- [x] LLM: Claude API (Haiku 4.5) 実装、smoke 確認
+- [x] LLM: Claude Agent SDK 経由 (Max プラン) 実装、smoke 確認
+- [x] LLM バックエンド切替 (SHUBATAPO_LLM_BACKEND=api|code)
+- [x] Subaru TTS HTTP クライアント、参照音声 seg_000143.wav で品質改善
+- [x] テキスト対話ループ (text_loop)
+- [x] 音声対話ループ (voice_loop) — エンドツーエンド動作確認
+- [x] Mac ランナー (mac_runner.sh) — GPU PC tmux 常駐 + Mac scp + afplay
+- [x] 起動時 Subaru ボイスで挨拶プロンプト

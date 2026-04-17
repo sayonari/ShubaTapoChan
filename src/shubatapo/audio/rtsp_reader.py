@@ -15,20 +15,33 @@ ffmpeg をサブプロセスで起動し、stdout から生PCMを読む。別ス
 """
 from __future__ import annotations
 
+import os
 import queue
 import subprocess
 import threading
 
+import numpy as np
+
 
 SAMPLE_RATE = 16000
 CHUNK_BYTES = 1600 * 2  # 100ms分 = 1600 sample * 2 byte
+# TAPO C220 の RTSP 音声は既定で極端にレベルが低い (観測RMS 8〜20 / 32767 スケール)。
+# 環境変数 SHUBATAPO_AUDIO_GAIN で上書き可。1.0 でブーストなし。
+DEFAULT_GAIN = float(os.environ.get("SHUBATAPO_AUDIO_GAIN", "20.0"))
 
 
 class RtspPcmReader:
-    def __init__(self, rtsp_url: str, sample_rate: int = SAMPLE_RATE, chunk_bytes: int = CHUNK_BYTES):
+    def __init__(
+        self,
+        rtsp_url: str,
+        sample_rate: int = SAMPLE_RATE,
+        chunk_bytes: int = CHUNK_BYTES,
+        gain: float = DEFAULT_GAIN,
+    ):
         self.rtsp_url = rtsp_url
         self.sample_rate = sample_rate
         self.chunk_bytes = chunk_bytes
+        self.gain = gain
         self._proc: subprocess.Popen | None = None
         self._q: queue.Queue[bytes] = queue.Queue(maxsize=256)
         self._reader_thread: threading.Thread | None = None
@@ -63,6 +76,8 @@ class RtspPcmReader:
             data = self._proc.stdout.read(self.chunk_bytes)
             if not data:
                 break
+            if self.gain != 1.0:
+                data = self._apply_gain(data)
             try:
                 self._q.put(data, timeout=0.5)
             except queue.Full:
@@ -72,6 +87,11 @@ class RtspPcmReader:
                 except queue.Empty:
                     pass
                 self._q.put_nowait(data)
+
+    def _apply_gain(self, data: bytes) -> bytes:
+        arr = np.frombuffer(data, dtype=np.int16).astype(np.float32) * self.gain
+        np.clip(arr, -32768.0, 32767.0, out=arr)
+        return arr.astype(np.int16).tobytes()
 
     def read_chunk(self, timeout: float = 1.0) -> bytes | None:
         try:

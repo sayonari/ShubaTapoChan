@@ -85,7 +85,8 @@ fi
 # 起動時のプロンプト
 afplay "$PROMPT_WAV"
 
-last_seen=""
+# 起動時点の最新WAVを last_seen として記憶しておき、以後生成される新しいWAVだけ再生
+last_seen=$($SSH "$HOST" "ls -1t ${REMOTE_DIR}/*.wav 2>/dev/null | head -1" 2>/dev/null || true)
 echo "[runner] 待機中。TAPO に話しかけてください。Ctrl-C で終了。"
 while true; do
   latest=$($SSH "$HOST" "ls -1t ${REMOTE_DIR}/*.wav 2>/dev/null | head -1" 2>/dev/null || true)

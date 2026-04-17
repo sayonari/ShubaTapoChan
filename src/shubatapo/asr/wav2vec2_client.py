@@ -17,7 +17,14 @@ from shubatapo.asr.base import ASRClient, ASRResult
 from shubatapo.asr.dedup import Dedup
 
 
-DEFAULT_MODEL_ID = "SiRoZaRuPa/wav2vec2-kanji-base-char-0916"
+import os
+
+# ローカルディレクトリが優先。環境変数で上書き可能。
+# GPU PC 側で ~/models/emoto-wav2vec2/ に配置している想定。
+DEFAULT_MODEL_ID = os.environ.get(
+    "SHUBATAPO_ASR_MODEL",
+    os.path.expanduser("~/models/emoto-wav2vec2"),
+)
 SAMPLE_RATE = 16000
 
 

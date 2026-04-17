@@ -43,7 +43,9 @@ class SlidingWindowASR(ASRClient):
         model_id: str = DEFAULT_MODEL_ID,
         window_sec: float = 3.0,
         stride_ms: int = 200,
-        stable_window: int = 3,
+        # 発話末沈黙の検出閾値。stride 200ms × 10 = 2秒連続で同じ出力なら確定。
+        # ノイズ由来の短い偽発話を抑制するため既定を長めに設定。
+        stable_window: int = 10,
         device: str | None = None,
     ):
         self.model_id = model_id

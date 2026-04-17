@@ -30,6 +30,8 @@ from shubatapo.tts import SubaruTTSClient
 
 HISTORY_TURNS = 6
 OUT_DIR = Path("/tmp/shubatapo_replies")
+# ノイズ由来の偽発話を捨てるための最小文字数。この長さ未満のASR確定テキストはLLMに送らない。
+MIN_USER_TEXT_CHARS = 3
 
 
 def main() -> int:
@@ -68,7 +70,9 @@ def main() -> int:
                     continue
 
                 user_text = result.text.strip()
-                if not user_text:
+                if len(user_text) < MIN_USER_TEXT_CHARS:
+                    # ノイズ起因の短い偽発話を無視
+                    print(f"  [skip noise] {user_text!r}")
                     continue
                 print(f"you> {user_text}")
                 history.append(LLMMessage(role="user", content=user_text))

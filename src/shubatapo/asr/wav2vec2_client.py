@@ -180,6 +180,8 @@ class SlidingWindowASR(ASRClient):
             self._utterance_start_ts = self._current_ts() - self.window_sec
 
         self._last_partial = text
+        if os.environ.get("SHUBATAPO_ASR_DEBUG"):
+            print(f"[ASR partial @ {self._current_ts():6.2f}s] {text!r}")
         finalized = self._dedup.push(text)
         if finalized is not None:
             self._emit_final(finalized)

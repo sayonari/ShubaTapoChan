@@ -21,8 +21,18 @@ HOST="${GPU_SERVER_USER}@${GPU_SERVER_HOST}"
 LOCAL_DIR="$HOME/.shubatapo_replies"
 REMOTE_DIR="/tmp/shubatapo_replies"
 REMOTE_LOG="/tmp/voice_loop.log"
+TTS_URL="http://${GPU_SERVER_HOST}:8766/api/synthesize"
+PROMPT_WAV="$LOCAL_DIR/_prompt_speak.wav"
 
 mkdir -p "$LOCAL_DIR"
+
+synth_subaru() {
+  # $1: テキスト, $2: 保存先パス
+  curl -s --max-time 15 -X POST "$TTS_URL" \
+    -H 'Content-Type: application/json' \
+    -d "{\"text\":\"$1\",\"ref_file\":\"seg_000001.wav\"}" \
+    -o "$2"
+}
 
 is_running() {
   $SSH "$HOST" "pgrep -f 'shubatapo.dialog.voice_loop' > /dev/null" 2>/dev/null
@@ -48,12 +58,17 @@ if is_running; then
 else
   start_loop
 fi
-rm -f "$LOCAL_DIR"/*.wav
+# turn_*.wav だけ削除（プロンプトWAVは残す）
+rm -f "$LOCAL_DIR"/turn_*.wav
+
+# プロンプトWAVをSubaru TTSで生成（無ければ）
+if [ ! -f "$PROMPT_WAV" ]; then
+  echo "[runner] プロンプト音声を合成中..."
+  synth_subaru "しゃべってー！" "$PROMPT_WAV"
+fi
 
 # --- メインループ --------------------------------------------------------
-say "スバルを起動したよ"
-sleep 0.4
-say "しゃべってー"
+afplay "$PROMPT_WAV" &
 
 last_seen=""
 echo "[runner] 待機中。TAPO に話しかけてください。Ctrl-C で終了。"
@@ -67,7 +82,7 @@ while true; do
     echo "[runner] 再生: $base"
     afplay "$LOCAL_DIR/$base"
     sleep 0.2
-    say "しゃべってー"
+    afplay "$PROMPT_WAV"
   fi
   sleep 1
 done

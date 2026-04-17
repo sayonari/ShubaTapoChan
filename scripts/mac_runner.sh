@@ -29,6 +29,8 @@ REMOTE_LOG="/tmp/voice_loop.log"
 TMUX_SESSION="voice_loop"
 TTS_URL="http://${GPU_SERVER_HOST}:8766/api/synthesize"
 PROMPT_WAV="$LOCAL_DIR/_prompt_speak.wav"
+# 短すぎるとGPT-SoVITS合成が崩れるので自然な長さの挨拶にする
+PROMPT_TEXT="${SHUBATAPO_PROMPT_TEXT:-準備できたよー！で、今日は何だっけ？}"
 RESTART="no"
 
 for arg in "$@"; do
@@ -76,8 +78,8 @@ rm -f "$LOCAL_DIR"/turn_*.wav
 
 # プロンプトWAVをSubaru TTSで合成（無ければ）
 if [ ! -f "$PROMPT_WAV" ]; then
-  echo "[runner] プロンプト音声を Subaru TTS で合成..."
-  synth_subaru "しゃべってー！" "$PROMPT_WAV"
+  echo "[runner] プロンプト音声を Subaru TTS で合成: ${PROMPT_TEXT}"
+  synth_subaru "${PROMPT_TEXT}" "$PROMPT_WAV"
 fi
 
 # 起動時のプロンプト

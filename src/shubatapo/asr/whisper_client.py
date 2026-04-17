@@ -19,6 +19,26 @@ DEFAULT_MODEL_SIZE = os.environ.get("SHUBATAPO_WHISPER_MODEL", "large-v3")
 DEFAULT_LANGUAGE = os.environ.get("SHUBATAPO_WHISPER_LANG", "ja")
 SAMPLE_RATE = 16000
 
+# Whisperが無音/ノイズに当てはめる定番ハルシネーション（日本語）を除外する。
+# 完全一致のみでOK（部分一致だと正当な発話を捨てる可能性）。
+HALLUCINATION_BLACKLIST = {
+    "ご視聴ありがとうございました",
+    "ご視聴ありがとうございました。",
+    "ご視聴ありがとうございました!",
+    "ご視聴ありがとうございました！",
+    "ありがとうございました",
+    "ありがとうございました。",
+    "ありがとうございました!",
+    "ありがとうございました！",
+    "おやすみなさい",
+    "おやすみなさい。",
+    "バイバイ",
+    "バイバイ。",
+    "Thanks for watching!",
+    "Thank you for watching.",
+    "Thank you.",
+}
+
 
 class WhisperASR(ASRClient):
     def __init__(
@@ -28,16 +48,22 @@ class WhisperASR(ASRClient):
         device: str = "cuda",
         compute_type: str = "float16",
         beam_size: int = 5,
-        # VAD パラメータ
-        vad_aggressiveness: int = 2,
+        # VAD パラメータ (厳しめの既定: ノイズ誤検出を抑制)
+        vad_aggressiveness: int = 3,
         silence_timeout_ms: int = 800,
-        min_speech_ms: int = 300,
+        min_speech_ms: int = 600,
+        # Whisper の無音判定閾値 (大きいほど silence とみなしやすい。既定0.6)
+        no_speech_threshold: float = 0.6,
+        # ハルシネーション除去
+        block_hallucinations: bool = True,
     ):
         from faster_whisper import WhisperModel
         print(f"[WhisperASR] loading {model_size} on {device} ({compute_type}) ...")
         self.model = WhisperModel(model_size, device=device, compute_type=compute_type)
         self.language = language
         self.beam_size = beam_size
+        self.no_speech_threshold = no_speech_threshold
+        self.block_hallucinations = block_hallucinations
         print(f"[WhisperASR] model ready.")
 
         self._vad = VADGate(
@@ -83,9 +109,15 @@ class WhisperASR(ASRClient):
             beam_size=self.beam_size,
             vad_filter=False,  # 前段で VAD 済
             condition_on_previous_text=False,
+            no_speech_threshold=self.no_speech_threshold,
         )
-        text = "".join(s.text for s in segments).strip()
+        # segment 生成は lazy。一旦 list 化する間に no_speech_prob もチェック可能。
+        seg_list = list(segments)
+        text = "".join(s.text for s in seg_list).strip()
         if not text:
+            return
+        if self.block_hallucinations and text in HALLUCINATION_BLACKLIST:
+            print(f"  [WhisperASR] block hallucination: {text!r}")
             return
         self._results.append(
             ASRResult(text=text, is_final=True, start_ts=start_ts, end_ts=end_ts)

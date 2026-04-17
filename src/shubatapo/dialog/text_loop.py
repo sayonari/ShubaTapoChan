@@ -14,7 +14,7 @@ from collections import deque
 from pathlib import Path
 
 from shubatapo.config import load_config
-from shubatapo.llm import ClaudeClient, LLMMessage
+from shubatapo.llm import LLMMessage, make_llm_client
 from shubatapo.tts import SubaruTTSClient
 
 
@@ -24,7 +24,7 @@ OUT_DIR = Path("/tmp/shubatapo_replies")
 
 def main() -> int:
     cfg = load_config()
-    llm = ClaudeClient(api_key=cfg.anthropic_api_key)
+    llm = make_llm_client(cfg)
     tts = SubaruTTSClient(base_url=cfg.tts_base_url)
     OUT_DIR.mkdir(exist_ok=True)
 

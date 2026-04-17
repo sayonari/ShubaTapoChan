@@ -13,6 +13,7 @@ dependencies = [
     "torch>=2.2",
     "torchaudio>=2.2",
     "anthropic>=0.40",
+    "claude-agent-sdk>=0.1",
     "soundfile>=0.12",
     "librosa>=0.10",
     "pyttsx3>=2.90",

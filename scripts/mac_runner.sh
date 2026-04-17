@@ -10,7 +10,10 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-set -a; source .env; set +a
+# .env は `KEY=VALUE` 形式の行のみ抽出（コメント・空行・行分割された値を無視）
+set -a; source <(grep -E '^[A-Z_]+=' .env); set +a
+# ~ を $HOME に展開
+GPU_SERVER_SSH_KEY="${GPU_SERVER_SSH_KEY/#\~/$HOME}"
 
 SSH="ssh -i ${GPU_SERVER_SSH_KEY} -o ConnectTimeout=5"
 SCP="scp -i ${GPU_SERVER_SSH_KEY}"

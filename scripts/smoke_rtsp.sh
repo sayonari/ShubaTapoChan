@@ -4,9 +4,9 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-# .env を読み込み
+# .env を読み込み (KEY=VALUE形式の行のみ抽出)
 set -a
-source .env
+source <(grep -E '^[A-Z_]+=' .env)
 set +a
 
 OUT="${1:-/tmp/shubatapo_smoke.wav}"

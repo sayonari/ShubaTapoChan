@@ -19,6 +19,8 @@ class Config:
     tapo_host: str
     tapo_user: str
     tapo_password: str
+    anthropic_api_key: str | None = None
+    tts_base_url: str = "http://localhost:8766"
 
     @property
     def rtsp_url(self) -> str:
@@ -42,4 +44,6 @@ def load_config() -> Config:
         tapo_host=os.environ["TAPO_CAMERA_HOST"],
         tapo_user=os.environ["TAPO_CAMERA_USER"],
         tapo_password=os.environ["TAPO_CAMERA_PASSWORD"],
+        anthropic_api_key=os.getenv("ANTHROPIC_API_KEY") or os.getenv("CLAUDE_API_KEY"),
+        tts_base_url=os.getenv("TTS_BASE_URL", "http://localhost:8766"),
     )

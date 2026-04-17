@@ -17,7 +17,7 @@ import time
 import wave
 from pathlib import Path
 
-from shubatapo.asr import SlidingWindowASR
+from shubatapo.asr import WhisperASR
 from shubatapo.config import load_config
 
 
@@ -67,7 +67,7 @@ def main() -> int:
     print(f"[smoke_asr] loaded {len(pcm)} bytes ({total_sec:.2f}s)")
 
     # ASR 起動
-    asr = SlidingWindowASR()
+    asr = WhisperASR()
 
     # 200ms 刻みで流し込み、その都度 pop_results
     chunk_ms = 200

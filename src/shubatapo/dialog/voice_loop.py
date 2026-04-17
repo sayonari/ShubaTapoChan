@@ -21,7 +21,7 @@ import time
 from collections import deque
 from pathlib import Path
 
-from shubatapo.asr import SlidingWindowASR  # sub-agentが提供
+from shubatapo.asr import WhisperASR
 from shubatapo.audio import RtspPcmReader
 from shubatapo.config import load_config
 from shubatapo.llm import LLMMessage, make_llm_client
@@ -40,7 +40,7 @@ def main() -> int:
 
     print(f"[voice_loop] TAPO {cfg.tapo_host} / TTS {cfg.tts_base_url}")
     reader = RtspPcmReader(cfg.rtsp_url)
-    asr = SlidingWindowASR()  # デフォルト 3秒窓 / 200msシフト
+    asr = WhisperASR()  # VAD + faster-whisper large-v3 (既定)
     llm = make_llm_client(cfg)
     tts = SubaruTTSClient(base_url=cfg.tts_base_url)
 

@@ -27,7 +27,7 @@ SAMPLE_RATE = 16000
 CHUNK_BYTES = 1600 * 2  # 100ms分 = 1600 sample * 2 byte
 # TAPO C220 の RTSP 音声は既定で極端にレベルが低い (観測RMS 8〜20 / 32767 スケール)。
 # 環境変数 SHUBATAPO_AUDIO_GAIN で上書き可。1.0 でブーストなし。
-DEFAULT_GAIN = float(os.environ.get("SHUBATAPO_AUDIO_GAIN", "20.0"))
+DEFAULT_GAIN = float(os.environ.get("SHUBATAPO_AUDIO_GAIN", "50.0"))
 
 
 class RtspPcmReader:

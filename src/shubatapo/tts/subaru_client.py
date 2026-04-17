@@ -18,7 +18,8 @@ class SubaruTTSClient(TTSClient):
     def __init__(
         self,
         base_url: str = "http://localhost:8766",
-        ref_file: str = "seg_000001.wav",
+        # 参照音声はユーザ評価で seg_000143 (家庭教師) が品質◎ と判明 (2026-04-17)
+        ref_file: str = "seg_000143.wav",
         timeout_sec: float = 30.0,
     ):
         self.base_url = base_url.rstrip("/")

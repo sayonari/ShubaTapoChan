@@ -30,7 +30,7 @@ synth_subaru() {
   # $1: テキスト, $2: 保存先パス
   curl -s --max-time 15 -X POST "$TTS_URL" \
     -H 'Content-Type: application/json' \
-    -d "{\"text\":\"$1\",\"ref_file\":\"seg_000001.wav\"}" \
+    -d "{\"text\":\"$1\",\"ref_file\":\"seg_000143.wav\"}" \
     -o "$2"
 }
 

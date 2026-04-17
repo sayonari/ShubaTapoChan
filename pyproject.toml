@@ -1,0 +1,29 @@
+[project]
+name = "shubatapo"
+version = "0.0.1"
+description = "Voice dialog agent using TAPO C220 and Subaru-voice TTS"
+requires-python = ">=3.12"
+dependencies = [
+    "python-dotenv>=1.0",
+    "pytapo>=3.3",
+    "av>=12",
+    "numpy>=1.26",
+    "webrtcvad-wheels>=2.0",
+    "transformers>=4.40",
+    "torch>=2.2",
+    "torchaudio>=2.2",
+    "anthropic>=0.40",
+    "soundfile>=0.12",
+    "librosa>=0.10",
+    "pyttsx3>=2.90",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.optional-dependencies]
+dev = ["ruff>=0.5", "pytest>=8"]

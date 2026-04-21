@@ -85,7 +85,8 @@ def _sanitize_for_tts(text: str) -> str:
     return t
 # VAD パラメータ（相槌タイミングの主役。短いほど即応だが誤切断が増える）
 VAD_SILENCE_TIMEOUT_MS = int(os.environ.get("SHUBATAPO_VAD_SILENCE_MS", "600"))
-VAD_MIN_SPEECH_MS = int(os.environ.get("SHUBATAPO_VAD_MIN_SPEECH_MS", "400"))
+# 短いノイズ誤発火を抑制。800ms 以上の連続 speech でないと発話とみなさない。
+VAD_MIN_SPEECH_MS = int(os.environ.get("SHUBATAPO_VAD_MIN_SPEECH_MS", "800"))
 # TAPO のマイクはノイズを常時拾うので発話区間が 20 秒超など異常に長くなりがち。
 # この時間を超えたら強制的に発話末とみなす。
 VAD_MAX_UTTERANCE_MS = int(os.environ.get("SHUBATAPO_VAD_MAX_MS", "5000"))
@@ -157,8 +158,9 @@ def _main_wav2vec2() -> int:
     # 終了時に ASR/VAD の内部状態をリセットしてクリーンに再開。
     speaking_until_ts = 0.0
     was_speaking = False
-    # 応答再生中とみなす時間 = TTS duration + margin (scp 転送遅延 + 残響吸収)
-    ECHO_MUTE_MARGIN_SEC = float(os.environ.get("SHUBATAPO_ECHO_MUTE_MARGIN", "2.0"))
+    # 応答再生中とみなす時間 = TTS duration + margin
+    # (scp 転送遅延 + Mac afplay 立ち上げ + 部屋の残響吸収のため長めに取る)
+    ECHO_MUTE_MARGIN_SEC = float(os.environ.get("SHUBATAPO_ECHO_MUTE_MARGIN", "4.0"))
 
     turn = 0
     try:

@@ -8,6 +8,7 @@ from __future__ import annotations
 import collections
 import os
 from collections import deque
+from typing import Callable
 
 import numpy as np
 
@@ -72,6 +73,17 @@ class WhisperASR(ASRClient):
             min_speech_ms=min_speech_ms,
         )
         self._results: collections.deque[ASRResult] = deque()
+        # 発話末検出時（Whisper 確定前）に呼ばれるコールバック。
+        # voice_loop はこれで相槌 (ack) WAV を即書き出して体感遅延をマスクする。
+        self._on_utterance_end: Callable[[], None] | None = None
+
+    def set_on_utterance_end(self, cb: Callable[[], None]) -> None:
+        """VAD が発話末を確定した瞬間に呼ぶコールバックを登録する。
+
+        Whisper 推論（1〜2 秒）より先に発火するので、相槌を即鳴らす用途に使う。
+        ノイズ起因の VAD 発火でもコールバックは呼ばれる点に注意。
+        """
+        self._on_utterance_end = cb
 
     # ------------------------------------------------------------------
     # public API
@@ -80,6 +92,12 @@ class WhisperASR(ASRClient):
         if not pcm_bytes:
             return
         for utt in self._vad.push(pcm_bytes):
+            # 先にコールバックを呼び、ack を書き出させる（Whisper は後続で走る）
+            if self._on_utterance_end is not None:
+                try:
+                    self._on_utterance_end()
+                except Exception as e:
+                    print(f"[WhisperASR] on_utterance_end callback error: {e}")
             self._transcribe(utt.pcm, utt.start_ms / 1000.0, utt.end_ms / 1000.0)
 
     def pop_results(self) -> list[ASRResult]:

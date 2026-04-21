@@ -21,8 +21,16 @@ cd "$(dirname "$0")/.."
 set -a; source <(grep -E '^[A-Z_]+=' .env); set +a
 GPU_SERVER_SSH_KEY="${GPU_SERVER_SSH_KEY/#\~/$HOME}"
 
-SSH="ssh -i ${GPU_SERVER_SSH_KEY} -o ConnectTimeout=5"
-SCP="scp -i ${GPU_SERVER_SSH_KEY}"
+# SSH ControlMaster を使って毎回のハンドシェイクを省き、ポーリング遅延を抑える。
+# 初回接続で socket を作り、以後は再利用する（ControlPersist=10min）。
+SSH_CTRL_DIR="$HOME/.ssh/cm"
+mkdir -p "$SSH_CTRL_DIR"
+SSH_COMMON="-i ${GPU_SERVER_SSH_KEY} -o ConnectTimeout=5 \
+  -o ControlMaster=auto \
+  -o ControlPath=${SSH_CTRL_DIR}/%r@%h:%p \
+  -o ControlPersist=600"
+SSH="ssh ${SSH_COMMON}"
+SCP="scp ${SSH_COMMON}"
 HOST="${GPU_SERVER_USER}@${GPU_SERVER_HOST}"
 LOCAL_DIR="$HOME/.shubatapo_replies"
 REMOTE_DIR="/tmp/shubatapo_replies"
@@ -94,6 +102,8 @@ $SSH "$HOST" "ls -1 ${REMOTE_DIR}/turn_*.wav 2>/dev/null | xargs -n1 basename 2>
   >> "$PLAYED_FILE" 2>/dev/null || true
 
 echo "[runner] 待機中。TAPO に話しかけてください。Ctrl-C で終了。"
+# SSH 接続を事前に張っておく（ControlMaster の socket 初期化）
+$SSH -fN "$HOST" 2>/dev/null || true
 while true; do
   # リモートの全 WAV を名前昇順で取得。turn_001_ack < turn_001_main < turn_002_ack ... の順になる。
   remote_list=$($SSH "$HOST" "ls -1 ${REMOTE_DIR}/turn_*.wav 2>/dev/null | xargs -n1 basename 2>/dev/null" 2>/dev/null || true)
@@ -108,5 +118,5 @@ while true; do
       fi
     done <<< "$remote_list"
   fi
-  sleep 1
+  sleep 0.3
 done

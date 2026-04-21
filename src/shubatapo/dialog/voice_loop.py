@@ -85,9 +85,36 @@ def main() -> int:
     signal.signal(signal.SIGINT, _sig)
     signal.signal(signal.SIGTERM, _sig)
 
+    # turn 番号は VAD 発話末検出で進める。ASR 確定は後からキューで対応付ける。
+    turn = 0
+    pending_turns: deque[int] = deque()
+
+    def on_vad_end() -> None:
+        """VAD が発話末を検出した瞬間に呼ばれる (Whisper 推論より前)。
+
+        相槌 (ack) を即座に書き出して、mac_runner/tapo_speaker に先行再生させる。
+        この時点では user_text はまだ無いので、後段 ASR 確定時に同じ turn 番号で
+        main を書く。ノイズ起因で ASR 結果が空だった場合は ack だけが残る。
+        """
+        nonlocal turn
+        turn += 1
+        pending_turns.append(turn)
+        if not filler_paths:
+            return
+        ack_src = random.choice(filler_paths)
+        ack_out = OUT_DIR / f"turn_{turn:03d}_ack.wav"
+        shutil.copyfile(ack_src, ack_out)
+        print(f"   ACK: {ack_out.name} ({ack_src.name})")
+        if tapo_speaker is not None:
+            try:
+                tapo_speaker.play_file(ack_out, wait_done=False)
+            except Exception as e:
+                print(f"   [tapo_speaker ack 失敗] {e}")
+
+    asr.set_on_utterance_end(on_vad_end)
+
     reader.start()
     print("[voice_loop] ストリーム開始。話しかけてみてください（Ctrl-Cで終了）")
-    turn = 0
     try:
         while not stop_flag["stop"]:
             pcm = reader.read_chunk(timeout=0.5)
@@ -100,30 +127,17 @@ def main() -> int:
                     print(f"  [partial] {result.text}")
                     continue
 
+                # on_vad_end で予約された turn 番号を取り出す。
+                # WhisperASR の内部で VAD 発火 → 同期的に _transcribe されるので順序は保たれる。
+                cur_turn = pending_turns.popleft() if pending_turns else 0
+
                 user_text = result.text.strip()
                 if len(user_text) < MIN_USER_TEXT_CHARS:
-                    # ノイズ起因の短い偽発話を無視
-                    print(f"  [skip noise] {user_text!r}")
+                    # ノイズ起因の短い偽発話を無視。ack は既に再生されているが、main は書かない。
+                    print(f"  [skip noise] {user_text!r} (turn={cur_turn})")
                     continue
-                print(f"you> {user_text}")
+                print(f"you> {user_text}  (turn={cur_turn})")
                 history.append(LLMMessage(role="user", content=user_text))
-
-                turn += 1
-                # 相槌 (ack) を即座に出力ディレクトリへコピー。mac_runner 側で先に再生される。
-                # 名前順で ack < main になるよう suffix を設計している。
-                ack_out: Path | None = None
-                if filler_paths:
-                    ack_src = random.choice(filler_paths)
-                    ack_out = OUT_DIR / f"turn_{turn:03d}_ack.wav"
-                    shutil.copyfile(ack_src, ack_out)
-                    print(f"   ACK: {ack_out.name} ({ack_src.name})")
-
-                # TAPO スピーカ出力: 相槌を即座に流して LLM+TTS 合成中の遅延を埋める
-                if tapo_speaker is not None and ack_out is not None:
-                    try:
-                        tapo_speaker.play_file(ack_out, wait_done=False)
-                    except Exception as e:
-                        print(f"   [tapo_speaker ack 失敗] {e}")
 
                 t0 = time.perf_counter()
                 reply = llm.respond(history=list(history), system=system_prompt)
@@ -135,18 +149,16 @@ def main() -> int:
                 tres = tts.synthesize(reply)
                 t_tts = time.perf_counter() - t0
 
-                out = OUT_DIR / f"turn_{turn:03d}_main.wav"
+                out = OUT_DIR / f"turn_{cur_turn:03d}_main.wav"
                 out.write_bytes(tres.wav_bytes)
                 print(
                     f"   TTS: {out.name}  "
                     f"({tres.sample_rate}Hz/{tres.channels}ch/{tres.duration_sec:.2f}s, 合成{t_tts:.2f}s)"
                 )
 
-                # TAPO スピーカ出力: main を続けて再生 (ack 再生完了を待ってから push)
                 if tapo_speaker is not None:
                     try:
-                        # ack の再生が長引くと被るので、少し待機してから main を送る
-                        # 相槌は 0.5〜1.5 秒程度なので 1.0 秒固定待機で実用上十分
+                        # ack と被らないよう少し待機してから main を送る
                         time.sleep(1.0)
                         tapo_speaker.play_file(out, wait_done=False)
                     except Exception as e:

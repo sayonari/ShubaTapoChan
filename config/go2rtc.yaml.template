@@ -6,7 +6,8 @@
 # TAPO スピーカ出力は「カメラから声が出る」体験を優先する時に使う。
 
 log:
-  level: info
+  level: trace          # tapo:// 認証失敗などのデバッグを見るため詳細化
+  format: text
 
 api:
   listen: ":1984"       # WebUI / HTTP API (http://<host>:1984/)

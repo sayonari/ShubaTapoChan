@@ -15,6 +15,7 @@ from pathlib import Path
 
 from shubatapo.config import load_config
 from shubatapo.llm import LLMMessage, make_llm_client
+from shubatapo.persona import load_persona
 from shubatapo.tts import SubaruTTSClient
 
 
@@ -24,12 +25,14 @@ OUT_DIR = Path("/tmp/shubatapo_replies")
 
 def main() -> int:
     cfg = load_config()
+    persona = load_persona()
+    system_prompt = persona.to_system_prompt()
     llm = make_llm_client(cfg)
     tts = SubaruTTSClient(base_url=cfg.tts_base_url)
     OUT_DIR.mkdir(exist_ok=True)
 
     history: deque[LLMMessage] = deque(maxlen=HISTORY_TURNS * 2)
-    print("[text_loop] ShubaTapoChan テキスト対話モード。空行 or Ctrl-D で終了。")
+    print(f"[text_loop] ShubaTapoChan テキスト対話モード (persona={persona.name})。空行 or Ctrl-D で終了。")
     turn = 0
 
     while True:
@@ -44,7 +47,7 @@ def main() -> int:
         history.append(LLMMessage(role="user", content=user_text))
 
         t0 = time.perf_counter()
-        reply = llm.respond(history=list(history))
+        reply = llm.respond(history=list(history), system=system_prompt)
         t_llm = time.perf_counter() - t0
         print(f"subaru> {reply}    ({t_llm:.2f}s)")
 

@@ -3,9 +3,10 @@
 #
 # 仕組み:
 #   - GPU PC の tmux セッション `voice_loop` で voice_loop を常駐起動
-#   - /tmp/shubatapo_replies/*.wav を GPU PC にポーリングで問い合わせ
-#   - 新しいWAVが来たら scp で取ってきて afplay
-#   - 起動時と各ターン後に Subaru 合成の「しゃべってー！」プロンプトを再生
+#   - /tmp/shubatapo_replies/turn_*.wav を GPU PC にポーリングで問い合わせ
+#   - 未再生ファイルを全て名前順で scp + afplay （ack→main の順に鳴る）
+#   - 起動時にリモートの既存 WAV を全部「再生済」扱いにして古い応答を再生しない
+#   - 起動時に Subaru 合成の挨拶プロンプトを1回再生
 #
 # 使い方:
 #   ./scripts/mac_runner.sh              # 普段使い
@@ -85,17 +86,27 @@ fi
 # 起動時のプロンプト
 afplay "$PROMPT_WAV"
 
-# 起動時点の最新WAVを last_seen として記憶しておき、以後生成される新しいWAVだけ再生
-last_seen=$($SSH "$HOST" "ls -1t ${REMOTE_DIR}/*.wav 2>/dev/null | head -1" 2>/dev/null || true)
+# .played: 既に取得/再生したファイル名を1行1つで保存。
+# 起動時点でリモートに存在する WAV は全て「再生済」扱いにして古い応答の再生を防ぐ。
+PLAYED_FILE="$LOCAL_DIR/.played"
+: > "$PLAYED_FILE"
+$SSH "$HOST" "ls -1 ${REMOTE_DIR}/turn_*.wav 2>/dev/null | xargs -n1 basename 2>/dev/null" \
+  >> "$PLAYED_FILE" 2>/dev/null || true
+
 echo "[runner] 待機中。TAPO に話しかけてください。Ctrl-C で終了。"
 while true; do
-  latest=$($SSH "$HOST" "ls -1t ${REMOTE_DIR}/*.wav 2>/dev/null | head -1" 2>/dev/null || true)
-  if [ -n "$latest" ] && [ "$latest" != "$last_seen" ]; then
-    base=$(basename "$latest")
-    $SCP -q "${HOST}:${latest}" "$LOCAL_DIR/$base"
-    last_seen="$latest"
-    echo "[runner] 再生: $base"
-    afplay "$LOCAL_DIR/$base"
+  # リモートの全 WAV を名前昇順で取得。turn_001_ack < turn_001_main < turn_002_ack ... の順になる。
+  remote_list=$($SSH "$HOST" "ls -1 ${REMOTE_DIR}/turn_*.wav 2>/dev/null | xargs -n1 basename 2>/dev/null" 2>/dev/null || true)
+  if [ -n "$remote_list" ]; then
+    while IFS= read -r base; do
+      [ -z "$base" ] && continue
+      if ! grep -Fxq "$base" "$PLAYED_FILE"; then
+        $SCP -q "${HOST}:${REMOTE_DIR}/$base" "$LOCAL_DIR/$base"
+        echo "$base" >> "$PLAYED_FILE"
+        echo "[runner] 再生: $base"
+        afplay "$LOCAL_DIR/$base"
+      fi
+    done <<< "$remote_list"
   fi
   sleep 1
 done

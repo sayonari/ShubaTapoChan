@@ -2,18 +2,17 @@
 
 ## 🔥 急務（次セッション最優先）
 
-### 相槌 (backchannel) による体感遅延削減
-ユーザ発話末検出時、LLM 処理を待たずに短い相槌を先行再生して遅延をマスクする。
-- [x] `src/shubatapo/dialog/fillers.py` : 相槌フレーズのTTSキャッシュモジュール (雛形)
-- [ ] `src/shubatapo/dialog/voice_loop.py` 改修:
-  - 起動時に `prepare_fillers()` で `/tmp/shubatapo_fillers/` にキャッシュ作成
-  - ASR 発話末確定時、LLM 呼び出しの**直前**にランダム1つを `turn_NNN_ack.wav` としてコピー
-  - 続けて LLM → TTS → `turn_NNN_main.wav` に出力
-- [ ] `scripts/mac_runner.sh` の再生ロジック改修:
-  - `.played` 履歴ファイルで未再生分を全て名前順ダウンロード・afplay
-  - 起動時に現在リモートの全 WAV を `.played` で初期化（古い応答の再生防止）
-  - 同時に「ターン取りこぼし」問題も解消される
-- [ ] 動作確認: 発話 → 相槌即時再生 → 応答がスムーズに続く
+### C220 スピーカ出力 (go2rtc) 実機検証
+- [ ] GPU PC に `.env` の TAPO_CLOUD_PASSWORD を追加
+- [ ] GPU PC で `./scripts/setup_go2rtc.sh` を実行して go2rtc コンテナ起動
+- [ ] WebUI (`http://133.15.57.36:1984/`) で `tapo_c220` が両ソース緑になるか確認
+- [ ] `SHUBATAPO_AUDIO_OUT=tapo` に切り替えて voice_loop 実機テスト
+- [ ] 駄目な場合: パスワード認証形式 (plain/MD5/SHA256) を切替、FW ダウングレード検討
+
+### 相槌／persona の実機確認
+- [ ] `./scripts/mac_runner.sh --restart` で起動
+- [ ] ASR 発話末で ack WAV が即再生 → main が続く流れを体感で確認
+- [ ] persona (subaru) のトーンが応答に反映されているか確認
 
 ## 優先度：高
 
@@ -27,12 +26,12 @@
   - 候補: `rsync --partial --append`, `sshfs + fswatch`, `inotifywait` 経由
 - [ ] プロセス重複起動防止（単一インスタンスロック）
 
-## 優先度：中
+### C220 統合運用
+- [ ] C220 スピーカ運用時のマイク自己発話取り込み対策 (簡易 mute タイミング制御)
+- [ ] バージイン実装: ユーザ発話開始検出 → `tapo_speaker.stop()`
+- [ ] 応答と相槌の重複再生を避ける（main 送信前に ack 完了を待つか、固定 sleep を調整）
 
-### TAPO スピーカ出力 (Phase 7)
-- [ ] go2rtc サイドカー構成の検証
-- [ ] C220 FW 1.2.2 Build 260311 で go2rtc tapo backchannel が動くか検証
-- [ ] 動かない場合の FW ダウングレード手順
+## 優先度：中
 
 ### 対話の自然さ
 - [ ] 会話履歴の上限（現在6ターン）の最適化
@@ -72,3 +71,10 @@
 - [x] 音声対話ループ (voice_loop) — エンドツーエンド動作確認
 - [x] Mac ランナー (mac_runner.sh) — GPU PC tmux 常駐 + Mac scp + afplay
 - [x] 起動時 Subaru ボイスで挨拶プロンプト
+- [x] 相槌 (backchannel) 実装: prepare_fillers → turn_NNN_ack.wav → turn_NNN_main.wav
+- [x] mac_runner の `.played` ベース未再生全ダウンロード方式（ack→main が名前順で再生）
+- [x] キャラ設定様式 `personas/<name>.yaml` と Persona ローダ、大空スバル初期値
+- [x] go2rtc サイドカー: `scripts/setup_go2rtc.sh`、`config/go2rtc.yaml.template`
+- [x] TapoSpeakerClient (go2rtc HTTP API で C220 スピーカに push)
+- [x] voice_loop に `SHUBATAPO_AUDIO_OUT=mac|tapo|both` 切替実装
+- [x] `.env.example` 作成（TAPO_CLOUD_PASSWORD 等のキー一覧を明文化）

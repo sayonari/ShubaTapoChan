@@ -1,0 +1,24 @@
+# go2rtc 設定テンプレート。
+# C220 の TP-Link クラウドパスワードは .env 由来で置換して使う。
+# scripts/setup_go2rtc.sh が ${TAPO_*} を流し込んで config/go2rtc.yaml を生成する。
+#
+# 音質は PCMA/8000 (電話品質)。Subaru声質を楽しむ用途では Mac afplay 経路推奨、
+# TAPO スピーカ出力は「カメラから声が出る」体験を優先する時に使う。
+
+log:
+  level: info
+
+api:
+  listen: ":1984"       # WebUI / HTTP API (http://<host>:1984/)
+  origin: "*"
+
+rtsp:
+  listen: ":8554"
+
+streams:
+  # C220 1台構成。カメラを増やす時はここを追加。
+  tapo_c220:
+    # 映像/音声取得 (RTSP) — 既存の .env のカメラアカウントを使う
+    - rtsp://__RTSP_USER__:__RTSP_PASS__@__TAPO_HOST__:554/stream1
+    # 双方向音声 (tapo プロプライエタリ) — ユーザ名なし、TP-Link クラウドパスワード
+    - tapo://__TAPO_CLOUD_PASSWORD__@__TAPO_HOST__

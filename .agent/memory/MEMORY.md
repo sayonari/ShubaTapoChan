@@ -3,11 +3,16 @@
 ## プロジェクト概要
 TAPO C220（首振り対応ネットワークカメラ）＋ 大空スバル声TTS（`../Subaru_TTS`）＋ GPU PC による音声対話エージェント。
 
-現状構成（2026-04-17時点）:
+現状構成（2026-04-21時点）:
 - **入力**: TAPO RTSP → ffmpeg 16kHz PCM → 50倍ゲイン → webrtcvad → faster-whisper large-v3
 - **LLM**: Anthropic API (haiku-4-5 既定) または Claude Agent SDK (Max プラン枠, Sonnet/Opus)
+- **キャラ設定**: `personas/<name>.yaml` → system プロンプトに注入（既定 subaru）
+- **相槌**: 起動時に 6 種を TTS キャッシュ、ASR 確定時に ack→main 順で出力
 - **TTS**: Subaru_TTS GPT-SoVITS v4 HTTP サーバー (port 8766, 48kHz mono WAV)
-- **出力**: Mac 側 mac_runner.sh が GPU PC から scp + afplay
+- **出力**:
+  - `SHUBATAPO_AUDIO_OUT=mac` (既定): Mac 側 mac_runner.sh が scp + afplay（Subaru 声質◎）
+  - `SHUBATAPO_AUDIO_OUT=tapo`: go2rtc 経由で C220 スピーカ push（PCMA/8kHz 電話品質）
+  - `SHUBATAPO_AUDIO_OUT=both`: 両方
 
 ## 学習した知識・教訓
 
@@ -66,7 +71,15 @@ SHUBATAPO_ASR_DEBUG=1 python scripts/smoke_asr.py /tmp/sample.wav
 SHUBATAPO_AUDIO_GAIN=30 python -m shubatapo.dialog.voice_loop
 ```
 
+### C220 スピーカ出力 (go2rtc)
+- `tapo://` は TP-Link 独自プロトコル。RTSP とは**別パスワード**（TP-Link クラウドアカウント、ユーザ名なし）
+- Docker: `scripts/setup_go2rtc.sh` → `shubatapo-go2rtc` コンテナ (host network, :1984/:8554)
+- `/tmp/shubatapo_replies` と `/tmp/shubatapo_fillers` を bind mount して絶対パスを一致させる
+- HTTP API: `POST /api/streams?dst=tapo_c220&src=file:<abs>#input=file`、`src=""` で停止
+- 音質上限は PCMA/8000 (電話品質)。Subaru 声質評価は Mac 経路で行う
+
 ### Git 運用
 - コミット時は `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>` フッタ
 - .env は `.gitignore` 済、rsync で Mac → GPU PC 同期する
 - `.env` のキー名は `CLAUDE_CODE_OAUTH_TOKEN` が正式（Agent SDK の規約）。`OAUTH_TOKEN` だとSDKが拾わないので注意
+- `.env.example` にキー一覧を記載。新規キーを追加する時はここも更新する

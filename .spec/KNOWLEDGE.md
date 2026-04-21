@@ -66,3 +66,49 @@
 - GPU PCとTAPO C220の物理ネットワーク関係（同一LANか、VPNが必要か）
 - `.env` の具体内容（GPU PCログイン情報・TAPO情報）
 - TAPO C220 開封直後なので、まずPhase 0（物理セットアップ）をユーザーが実施する必要あり
+
+## C220 スピーカ出力 (go2rtc 経由) — 2026-04-21 追加
+
+### 技術的前提
+- Tapo は ONVIF Profile T の backchannel 非対応。RTSP SDP は `recvonly`。
+- C220 スピーカへ流すには **プロプライエタリ `tapo://` プロトコル** が必要。
+- `go2rtc` が `tapo://` を実装しており、HTTP API で任意ソースを push 可能。
+- 音質上限は **PCMA または PCMU / 8000Hz**（電話品質）。Subaru の声質は崩れる。
+
+### 本プロジェクトでの構成
+- go2rtc は GPU PC 上で Docker コンテナ (`shubatapo-go2rtc`) として常駐 (`scripts/setup_go2rtc.sh`)
+- `config/go2rtc.yaml` に `tapo_c220` ストリームを 2 ソース定義
+  - 既存の RTSP アカウント（受信用）
+  - TP-Link クラウドパスワード（送信 backchannel 用、ユーザ名なし）
+- Python 側クライアント: `shubatapo.audio.TapoSpeakerClient`
+  - `POST /api/streams?dst=tapo_c220&src=file:<abs_path>#input=file`
+  - `src=""` で即停止（将来のバージイン）
+- `/tmp/shubatapo_replies` と `/tmp/shubatapo_fillers` は Docker に bind mount し、
+  GPU PC 側の絶対パスと Docker 内部のパスを一致させる（path mapping 回避）
+
+### 運用切替
+- `SHUBATAPO_AUDIO_OUT=mac` (既定): Mac afplay のみ。Subaru 声質を楽しむ／開発用。
+- `SHUBATAPO_AUDIO_OUT=tapo`: C220 スピーカのみ。カメラから声が出る体験。
+- `SHUBATAPO_AUDIO_OUT=both`: 両方同時再生。
+- `SHUBATAPO_GO2RTC_URL` で go2rtc HTTP API URL を上書き。
+
+### 未検証・想定される地雷
+- C220 FW 1.2.2 Build 260311 で `tapo://` が動くかは未検証
+  - 通らなかった場合は SHA256 ハッシュ認証や FW ダウングレードが必要
+- クラウドパスワードが記号を多く含むと認証失敗する報告あり
+- `#input=file` 経由のファイル再生は go2rtc 側で PCMA/8000 に変換される
+
+### キャラ設定 (persona) の導入 — 2026-04-21 追加
+- `personas/<name>.yaml` で system プロンプトを外部化
+- `SHUBATAPO_PERSONA` 環境変数で切替（既定: `subaru`）
+- `voice_loop` / `text_loop` は `llm.respond(history, system=...)` に整形済プロンプトを渡す
+- デフォルト system プロンプト (claude_client.py / claude_code_client.py) は
+  system 未指定時のフォールバックとして残している
+
+### 相槌 (backchannel) 実装 — 2026-04-21 追加
+- 起動時に `prepare_fillers(tts, /tmp/shubatapo_fillers)` で 6 種の短フレーズを TTS キャッシュ
+- ASR 発話末確定時、LLM 呼び出し**前**にランダム 1 つを `turn_NNN_ack.wav` にコピー
+- 続けて LLM → TTS → `turn_NNN_main.wav`
+- `mac_runner.sh` は `.played` 履歴で未再生ファイルを**名前順**で全ダウンロード・afplay
+  - `turn_001_ack.wav` < `turn_001_main.wav` < `turn_002_ack.wav` の辞書順が再生順と一致
+- 起動時にリモートの既存 WAV を全て「再生済」扱いにして古い応答の再生を防ぐ

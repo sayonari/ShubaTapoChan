@@ -40,20 +40,28 @@ class RtspPcmReader:
         sample_rate: int = SAMPLE_RATE,
         chunk_bytes: int = CHUNK_BYTES,
         gain: float = DEFAULT_GAIN,
+        watchdog_sec: float = 5.0,
     ):
         self.rtsp_url = rtsp_url
         self.sample_rate = sample_rate
         self.chunk_bytes = chunk_bytes
         self.gain = gain
+        self.watchdog_sec = watchdog_sec
         self._proc: subprocess.Popen | None = None
         self._q: queue.Queue[bytes] = queue.Queue(maxsize=256)
         self._reader_thread: threading.Thread | None = None
+        self._watchdog_thread: threading.Thread | None = None
         self._stop = threading.Event()
+        # 最後に stdout からデータが読めた時刻。ウォッチドッグがこれを監視して
+        # stalled な ffmpeg を強制 kill する。
+        self._last_data_ts: float = time.time()
 
     def start(self) -> None:
         self._spawn_ffmpeg()
         self._reader_thread = threading.Thread(target=self._reader_loop, daemon=True)
         self._reader_thread.start()
+        self._watchdog_thread = threading.Thread(target=self._watchdog_loop, daemon=True)
+        self._watchdog_thread.start()
 
     def _spawn_ffmpeg(self) -> None:
         """ffmpeg を起動する。再接続時にも呼ばれる。"""
@@ -62,6 +70,9 @@ class RtspPcmReader:
             "-hide_banner",
             "-loglevel", "error",
             "-rtsp_transport", "tcp",
+            # -stimeout: RTSP ソケット read/write のタイムアウト (マイクロ秒)。
+            # RTSP が静かに止まっても 5 秒で ffmpeg 側がエラー終了してくれる。
+            "-stimeout", "5000000",
             "-i", self.rtsp_url,
             "-vn",
             "-ac", "1",
@@ -76,6 +87,7 @@ class RtspPcmReader:
             stderr=subprocess.PIPE,
             bufsize=0,
         )
+        self._last_data_ts = time.time()
 
     def _reader_loop(self) -> None:
         """EOF で ffmpeg が終了しても再接続を繰り返し、永続的に PCM を読み続ける。
@@ -114,8 +126,9 @@ class RtspPcmReader:
                 backoff_sec = min(backoff_sec * 1.5, 10.0)
                 continue
 
-            # データが読めたのでバックオフをリセット
+            # データが読めたのでバックオフをリセット & ウォッチドッグ用タイムスタンプ更新
             backoff_sec = 1.0
+            self._last_data_ts = time.time()
 
             if self.gain != 1.0:
                 data = self._apply_gain(data)
@@ -128,6 +141,29 @@ class RtspPcmReader:
                 except queue.Empty:
                     pass
                 self._q.put_nowait(data)
+
+    def _watchdog_loop(self) -> None:
+        """一定時間 stdout からデータが届かなければ ffmpeg を強制 kill する。
+
+        ffmpeg は生きているが RTSP 側が静かに止まって stdout.read() が永久に
+        ブロックする「stall」状態を救出するのが目的。kill されると
+        _reader_loop 側の read() が EOF で返って再接続ループに入る。
+        """
+        while not self._stop.is_set():
+            time.sleep(1.0)
+            if self._proc is None or self._proc.poll() is not None:
+                continue
+            idle = time.time() - self._last_data_ts
+            if idle > self.watchdog_sec:
+                print(
+                    f"[RtspPcmReader] watchdog: {idle:.1f}s 無通信、ffmpeg を kill して再接続"
+                )
+                try:
+                    self._proc.kill()
+                except Exception as e:
+                    print(f"[RtspPcmReader] kill 失敗: {e}")
+                # 次の kill が即座に走らないよう、一旦時刻をリセットして再接続サイクルを待つ
+                self._last_data_ts = time.time()
 
     def _apply_gain(self, data: bytes) -> bytes:
         arr = np.frombuffer(data, dtype=np.int16).astype(np.float32) * self.gain

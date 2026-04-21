@@ -37,11 +37,13 @@ class VADGate:
         aggressiveness: int = 2,          # 0-3 (大きいほど silence 判定厳しめ)
         silence_timeout_ms: int = 800,    # 発話末とみなす無音継続時間
         min_speech_ms: int = 300,         # これ未満はノイズとして捨てる
+        max_utterance_ms: int = 5000,     # これを超えたら強制的に発話末とみなす
     ):
         import webrtcvad
         self._vad = webrtcvad.Vad(aggressiveness)
         self.silence_timeout_ms = silence_timeout_ms
         self.min_speech_ms = min_speech_ms
+        self.max_utterance_ms = max_utterance_ms
 
         self._pending = bytearray()       # まだフレーム化されてないバイト
         self._utt_buf = bytearray()       # 発話中の蓄積
@@ -91,6 +93,24 @@ class VADGate:
                         self._silence_ms = 0
                         self._speech_ms = 0
                 # else: 無音継続、何もしない
+
+            # max_utterance_ms を超えても沈黙が来ない場合は強制確定。
+            # TAPO のようにノイズを speech として拾い続ける環境で無限発話になるのを防ぐ。
+            if self._in_speech:
+                elapsed = self._total_ms - self._utt_start_ms
+                if elapsed >= self.max_utterance_ms:
+                    if self._speech_ms >= self.min_speech_ms:
+                        out.append(
+                            Utterance(
+                                pcm=bytes(self._utt_buf),
+                                start_ms=self._utt_start_ms,
+                                end_ms=self._total_ms,
+                            )
+                        )
+                    self._utt_buf.clear()
+                    self._in_speech = False
+                    self._silence_ms = 0
+                    self._speech_ms = 0
         return out
 
     def flush(self) -> list[Utterance]:

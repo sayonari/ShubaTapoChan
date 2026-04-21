@@ -9,16 +9,19 @@ from __future__ import annotations
 def thin_partials(
     partials: list[tuple[float, str]],
     max_n: int = 6,
+    min_chars: int = 3,
 ) -> list[tuple[float, str]]:
     """連続重複を除去した上で、max_n 個を超える場合は等間隔で間引く。
 
-    - 先頭・末尾は必ず含める
-    - 重複テキストは最初の出現のみ残す
+    - min_chars 未満の短い partial は低品質として除外
+      （ノイズ由来の「な」「る」等を捨てる）
+    - 連続する同一テキストは最初の 1 つだけ残す
+    - 先頭と末尾は残り候補から必ず含める
     """
-    # 1. 連続同一テキストを畳む
+    # 1. 低品質 partial を除去 + 連続同一テキストを畳む
     dedup: list[tuple[float, str]] = []
     for ts, text in partials:
-        if not text:
+        if not text or len(text) < min_chars:
             continue
         if dedup and dedup[-1][1] == text:
             continue

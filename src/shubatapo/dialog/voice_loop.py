@@ -50,6 +50,9 @@ MAX_PARTIALS_TO_LLM = 6
 # VAD パラメータ（相槌タイミングの主役。短いほど即応だが誤切断が増える）
 VAD_SILENCE_TIMEOUT_MS = int(os.environ.get("SHUBATAPO_VAD_SILENCE_MS", "600"))
 VAD_MIN_SPEECH_MS = int(os.environ.get("SHUBATAPO_VAD_MIN_SPEECH_MS", "400"))
+# TAPO のマイクはノイズを常時拾うので発話区間が 20 秒超など異常に長くなりがち。
+# この時間を超えたら強制的に発話末とみなす。
+VAD_MAX_UTTERANCE_MS = int(os.environ.get("SHUBATAPO_VAD_MAX_MS", "5000"))
 
 
 def _main_wav2vec2() -> int:
@@ -71,7 +74,11 @@ def _main_wav2vec2() -> int:
     )
     reader = RtspPcmReader(cfg.rtsp_url)
     asr = SlidingWindowASR()
-    vad = VADGate(silence_timeout_ms=VAD_SILENCE_TIMEOUT_MS, min_speech_ms=VAD_MIN_SPEECH_MS)
+    vad = VADGate(
+        silence_timeout_ms=VAD_SILENCE_TIMEOUT_MS,
+        min_speech_ms=VAD_MIN_SPEECH_MS,
+        max_utterance_ms=VAD_MAX_UTTERANCE_MS,
+    )
     llm = make_llm_client(cfg)
     tts = SubaruTTSClient(base_url=cfg.tts_base_url)
 
@@ -97,7 +104,8 @@ def _main_wav2vec2() -> int:
 
     reader.start()
     print(f"[voice_loop] ストリーム開始 (VAD: silence={VAD_SILENCE_TIMEOUT_MS}ms / "
-          f"min_speech={VAD_MIN_SPEECH_MS}ms)。話しかけてみてください。Ctrl-C で終了。")
+          f"min_speech={VAD_MIN_SPEECH_MS}ms / max={VAD_MAX_UTTERANCE_MS}ms)。"
+          f"話しかけてみてください。Ctrl-C で終了。")
 
     turn = 0
     try:

@@ -113,6 +113,18 @@ class VADGate:
                     self._speech_ms = 0
         return out
 
+    def reset(self) -> None:
+        """VAD 内部状態をクリアして、新しい発話をクリーンに受け取れる状態に戻す。
+
+        SPEAKING→LISTENING 遷移時に呼ぶ。進行中の utterance バッファを
+        破棄し、in_speech=False から再開する。_total_ms (時刻基準) は継続。
+        """
+        self._pending.clear()
+        self._utt_buf.clear()
+        self._in_speech = False
+        self._speech_ms = 0
+        self._silence_ms = 0
+
     def flush(self) -> list[Utterance]:
         """ストリーム終端処理。speech 中なら現時点で確定させる。"""
         out: list[Utterance] = []

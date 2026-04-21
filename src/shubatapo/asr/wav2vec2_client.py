@@ -151,6 +151,19 @@ class SlidingWindowASR(ASRClient):
         except Exception as e:
             print(f"[SlidingWindowASR] close warning: {e}")
 
+    def reset(self) -> None:
+        """内部バッファ・dedup 状態をクリアして、新しい発話をクリーンに受け取れる状態に戻す。
+
+        SPEAKING→LISTENING 遷移時に呼ぶ。エコー由来の PCM が _pcm_buf に残って
+        次のユーザ発話の認識を汚染するのを防ぐ。partial_log (履歴) は残す。
+        """
+        self._pcm_buf = np.zeros(0, dtype=np.int16)
+        self._samples_since_last_infer = 0
+        self._last_partial = ""
+        self._utterance_start_ts = None
+        # dedup を同一パラメータで作り直してクリーン化
+        self._dedup = Dedup(stable_window=self._dedup.stable_window)
+
     # ------------------------------------------------------------------
     # internal
     # ------------------------------------------------------------------

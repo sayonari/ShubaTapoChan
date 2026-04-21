@@ -175,6 +175,20 @@ class RtspPcmReader:
         except queue.Empty:
             return None
 
+    def drain(self) -> int:
+        """現在キューに溜まっている PCM chunk をすべて破棄する。
+
+        SPEAKING→LISTENING 遷移時に呼び、再生中に溜まったエコー由来の
+        古い PCM を捨ててから通常処理を再開する。
+        """
+        count = 0
+        while True:
+            try:
+                self._q.get_nowait()
+                count += 1
+            except queue.Empty:
+                return count
+
     def stop(self) -> None:
         self._stop.set()
         if self._proc is not None:

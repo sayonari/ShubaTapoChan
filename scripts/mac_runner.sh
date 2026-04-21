@@ -41,9 +41,14 @@ PROMPT_WAV="$LOCAL_DIR/_prompt_speak.wav"
 # 短すぎるとGPT-SoVITS合成が崩れるので自然な長さの挨拶にする
 PROMPT_TEXT="${SHUBATAPO_PROMPT_TEXT:-準備できたよー！で、今日は何だっけ？}"
 RESTART="no"
+GAIN_OVERRIDE=""
 
 for arg in "$@"; do
   [[ "$arg" == "--restart" ]] && RESTART="yes"
+  if [[ "$arg" == --gain=* ]]; then
+    GAIN_OVERRIDE="${arg#--gain=}"
+    RESTART="yes"  # ゲイン変更は voice_loop 再起動が必要
+  fi
 done
 
 mkdir -p "$LOCAL_DIR"
@@ -60,10 +65,16 @@ remote_tmux_has_session() {
 }
 
 start_voice_loop_in_tmux() {
-  echo "[runner] GPU PC で voice_loop を tmux セッション ${TMUX_SESSION} に起動..."
+  local env_prefix=""
+  if [ -n "$GAIN_OVERRIDE" ]; then
+    env_prefix="SHUBATAPO_AUDIO_GAIN=${GAIN_OVERRIDE} "
+    echo "[runner] GPU PC で voice_loop 起動 (GAIN=${GAIN_OVERRIDE})"
+  else
+    echo "[runner] GPU PC で voice_loop を tmux セッション ${TMUX_SESSION} に起動..."
+  fi
   $SSH "$HOST" "tmux kill-session -t ${TMUX_SESSION} 2>/dev/null; \
     rm -f ${REMOTE_DIR}/*.wav ${REMOTE_LOG}; \
-    tmux new-session -d -s ${TMUX_SESSION} 'cd ~/ShubaTapoChan && source .venv/bin/activate && python -u -m shubatapo.dialog.voice_loop 2>&1 | tee ${REMOTE_LOG}'"
+    tmux new-session -d -s ${TMUX_SESSION} 'cd ~/ShubaTapoChan && source .venv/bin/activate && ${env_prefix}python -u -m shubatapo.dialog.voice_loop 2>&1 | tee ${REMOTE_LOG}'"
   echo "[runner] モデルロード待ち (12秒)..."
   sleep 12
 }

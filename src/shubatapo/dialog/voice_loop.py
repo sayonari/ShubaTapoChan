@@ -50,39 +50,6 @@ FILLER_CACHE_DIR = Path("/tmp/shubatapo_fillers")
 MIN_USER_TEXT_CHARS = 3
 # LLM に渡す partial の最大個数 (これ以上は間引かれる)
 MAX_PARTIALS_TO_LLM = 6
-# TTS 入力の最大文字数。GPT-SoVITS v4 は長い入力で品質が崩れるので短めに切る。
-MAX_TTS_TEXT_CHARS = int(os.environ.get("SHUBATAPO_TTS_MAX_CHARS", "40"))
-
-
-def _sanitize_for_tts(text: str) -> str:
-    """LLM 応答を TTS が綺麗に読める形に整形する。
-
-    - TTS で崩れやすい記号を置換/除去 (!? → ？、〜 → 、改行 → 空白)
-    - 最初の句点までで切る。無ければ MAX_TTS_TEXT_CHARS 以内に切り詰め。
-    """
-    if not text:
-        return text
-    # 改行を空白に、連続空白は 1 つに
-    t = " ".join(text.split())
-    # 合成が崩れやすい記号をシンプル化
-    replacements = {
-        "！？": "？", "!?": "？", "?!": "？", "!!": "！",
-        "〜": "ー", "～": "ー",
-        "...": "、", "…": "、",
-    }
-    for k, v in replacements.items():
-        t = t.replace(k, v)
-
-    # 最初の句点 (。) で切る
-    for end_char in ("。", "！", "？", "!", "?"):
-        idx = t.find(end_char)
-        if 0 < idx <= MAX_TTS_TEXT_CHARS:
-            return t[: idx + 1]
-
-    # 句点なし → 単純な文字数切り詰め
-    if len(t) > MAX_TTS_TEXT_CHARS:
-        t = t[:MAX_TTS_TEXT_CHARS]
-    return t
 # VAD パラメータ（相槌タイミングの主役。短いほど即応だが誤切断が増える）
 VAD_SILENCE_TIMEOUT_MS = int(os.environ.get("SHUBATAPO_VAD_SILENCE_MS", "600"))
 # 短いノイズ誤発火を抑制。800ms 以上の連続 speech でないと発話とみなさない。
@@ -270,14 +237,10 @@ def _main_wav2vec2() -> int:
                 history.append(LLMMessage(role="assistant", content=reply))
                 print(f"subaru> {reply}    ({t_llm:.2f}s)")
 
-                # TTS 前に文字数制限＋記号サニタイズ (GPT-SoVITS 品質維持)
-                tts_text = _sanitize_for_tts(reply)
-                if tts_text != reply:
-                    print(f"   sanitized → {tts_text!r}")
-
                 # --- 4. TTS 合成 → main WAV -------------------------------
+                # LLM 出力全体をそのまま合成する (長さ切り詰めや記号整形はしない)。
                 t0 = time.perf_counter()
-                tres = tts.synthesize(tts_text)
+                tres = tts.synthesize(reply)
                 t_tts = time.perf_counter() - t0
                 out = OUT_DIR / f"turn_{turn:03d}_main.wav"
                 out.write_bytes(tres.wav_bytes)

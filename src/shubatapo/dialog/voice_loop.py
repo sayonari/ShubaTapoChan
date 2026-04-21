@@ -152,6 +152,15 @@ def _main_wav2vec2() -> int:
     hb_rms_n = 0
     hb_peak = 0
 
+    # 自己発話フィードバック対策。Mac/TAPO のスピーカから鳴る自分の声を
+    # TAPO マイクが拾って無限ループしないよう、main TTS 再生想定時間中は
+    # VAD 発火を無視する (PCM は feed し続けるが utterance は捨てる)。
+    # この間 ack WAV もスキップされるが、そもそも自己発話中なので問題ない。
+    mute_until_ts = 0.0
+    # TTS 合成完了から afplay 開始までのラグ (scp 遅延など) と、
+    # 合成音声再生後のマイクの残響を考慮したマージン秒数。
+    ECHO_MUTE_MARGIN_SEC = float(os.environ.get("SHUBATAPO_ECHO_MUTE_MARGIN", "2.0"))
+
     turn = 0
     try:
         while not stop_flag["stop"]:
@@ -189,6 +198,13 @@ def _main_wav2vec2() -> int:
 
             # VAD が発話末を検出したら相槌＆LLM へ
             for utt in vad.push(pcm):
+                # 自己発話中 (SPEAKING) の VAD 発火は全て無視
+                now_ts = time.time()
+                if now_ts < mute_until_ts:
+                    remain = mute_until_ts - now_ts
+                    print(f"   [echo mute] 自己発話中のため VAD 発火を無視 (残り {remain:.1f}s)")
+                    continue
+
                 turn += 1
                 start_ts = utt.start_ms / 1000.0
                 end_ts = utt.end_ms / 1000.0
@@ -250,6 +266,11 @@ def _main_wav2vec2() -> int:
                     f"   TTS: {out.name}  "
                     f"({tres.sample_rate}Hz/{tres.channels}ch/{tres.duration_sec:.2f}s, 合成{t_tts:.2f}s)"
                 )
+
+                # 自己発話フィードバック対策: 応答再生想定時間中は VAD を無視する
+                mute_sec = tres.duration_sec + ECHO_MUTE_MARGIN_SEC
+                mute_until_ts = time.time() + mute_sec
+                print(f"   [echo mute] {mute_sec:.1f}s 間マイクゲート")
 
                 if tapo_speaker is not None:
                     try:

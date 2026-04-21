@@ -25,7 +25,9 @@ TAPO C220（首振り対応ネットワークカメラ）＋ 大空スバル声T
 
 ### TAPO C220 の制約と運用
 - **RTSP 音声は PCM A-law 8kHz mono**（事前調査の16kHz AACと違う、モデル/FW依存）
-- **音声レベルが極端に低い**（RMS 8-30、通常会話の 1/100〜1/500）。50倍ゲインで補正中
+- **音声レベルが低い**が、**ゲインでブーストしてはいけない**。ノイズも同時に増幅され
+  webrtcvad が常時 speech と誤判定 → 発話末が 20 秒以上検出されない事故が発生 (2026-04-21)。
+  SN 比優先で既定 `SHUBATAPO_AUDIO_GAIN=1.0`、ユーザは大きな声で話す運用
 - **Two-way audio (スピーカ出力) はpytapoに未実装**。go2rtcのみ現実解。FW 1.2.2 は動作未検証
 - `playAlarm`, `startManualAlarm`, `setAudioConfig` などプログラム制御系APIは METHOD_DO_NOT_EXIST で使えない
 - `playQuickResponse`, `testUsrDefAudio` はスロット空で使えない（Tapo アプリでの事前登録が必要）

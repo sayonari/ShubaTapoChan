@@ -25,9 +25,11 @@ import numpy as np
 
 SAMPLE_RATE = 16000
 CHUNK_BYTES = 1600 * 2  # 100ms分 = 1600 sample * 2 byte
-# TAPO C220 の RTSP 音声は既定で極端にレベルが低い (観測RMS 8〜20 / 32767 スケール)。
-# 環境変数 SHUBATAPO_AUDIO_GAIN で上書き可。1.0 でブーストなし。
-DEFAULT_GAIN = float(os.environ.get("SHUBATAPO_AUDIO_GAIN", "50.0"))
+# 音声対話の SN 比改善のため、入力ゲインは既定で 1.0 (ブーストなし)。
+# ノイズも同時に増幅されると VAD/ASR が常時 speech 扱いしてしまうため、
+# 入力は絞り、ユーザに「大きな声で」喋ってもらう運用が鉄則。
+# どうしても小さい場合のみ SHUBATAPO_AUDIO_GAIN=<N> で一時的に上げる。
+DEFAULT_GAIN = float(os.environ.get("SHUBATAPO_AUDIO_GAIN", "1.0"))
 
 
 class RtspPcmReader:

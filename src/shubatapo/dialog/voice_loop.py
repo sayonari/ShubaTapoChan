@@ -34,7 +34,7 @@ from pathlib import Path
 import numpy as np
 
 from shubatapo.asr.vad import VADGate
-from shubatapo.audio import RtspPcmReader, TapoSpeakerClient
+from shubatapo.audio import RtspPcmReader, StdinPcmReader, TapoSpeakerClient
 from shubatapo.config import load_config
 from shubatapo.dialog.fillers import prepare_fillers
 from shubatapo.dialog.partials import format_partials_for_llm, thin_partials
@@ -105,11 +105,22 @@ def _main_wav2vec2() -> int:
 
     persona = load_persona()
     system_prompt = persona.to_system_prompt()
+
+    # 入力ソース切替: SHUBATAPO_INPUT=stdin|rtsp (既定 rtsp)
+    input_mode = os.getenv("SHUBATAPO_INPUT", "rtsp").lower()
+    if input_mode == "stdin":
+        reader: RtspPcmReader | StdinPcmReader = StdinPcmReader()
+        input_label = "stdin (Mac mic via ssh)"
+    elif input_mode == "rtsp":
+        reader = RtspPcmReader(cfg.rtsp_url)
+        input_label = f"rtsp (TAPO {cfg.tapo_host})"
+    else:
+        raise ValueError(f"SHUBATAPO_INPUT は stdin または rtsp (現在: {input_mode})")
+
     print(
-        f"[voice_loop] ASR=wav2vec2 / TAPO {cfg.tapo_host} / TTS {cfg.tts_base_url} / "
+        f"[voice_loop] ASR=wav2vec2 / input={input_label} / TTS {cfg.tts_base_url} / "
         f"persona={persona.name} / audio_out={audio_out}"
     )
-    reader = RtspPcmReader(cfg.rtsp_url)
     asr = SlidingWindowASR()
     vad = VADGate(
         silence_timeout_ms=VAD_SILENCE_TIMEOUT_MS,

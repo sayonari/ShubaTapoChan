@@ -70,9 +70,8 @@ class RtspPcmReader:
             "-hide_banner",
             "-loglevel", "error",
             "-rtsp_transport", "tcp",
-            # -stimeout: RTSP ソケット read/write のタイムアウト (マイクロ秒)。
-            # RTSP が静かに止まっても 5 秒で ffmpeg 側がエラー終了してくれる。
-            "-stimeout", "5000000",
+            # RTSP 停滞の救出は watchdog スレッドに任せる (ffmpeg 新バージョンでは
+            # -stimeout が廃止されているため)。
             "-i", self.rtsp_url,
             "-vn",
             "-ac", "1",

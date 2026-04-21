@@ -19,6 +19,7 @@ import os
 import queue
 import subprocess
 import threading
+import time
 
 import numpy as np
 
@@ -50,6 +51,12 @@ class RtspPcmReader:
         self._stop = threading.Event()
 
     def start(self) -> None:
+        self._spawn_ffmpeg()
+        self._reader_thread = threading.Thread(target=self._reader_loop, daemon=True)
+        self._reader_thread.start()
+
+    def _spawn_ffmpeg(self) -> None:
+        """ffmpeg を起動する。再接続時にも呼ばれる。"""
         cmd = [
             "ffmpeg",
             "-hide_banner",
@@ -69,15 +76,47 @@ class RtspPcmReader:
             stderr=subprocess.PIPE,
             bufsize=0,
         )
-        self._reader_thread = threading.Thread(target=self._reader_loop, daemon=True)
-        self._reader_thread.start()
 
     def _reader_loop(self) -> None:
-        assert self._proc is not None and self._proc.stdout is not None
+        """EOF で ffmpeg が終了しても再接続を繰り返し、永続的に PCM を読み続ける。
+
+        TAPO の RTSP はたまに切断される (ネットワーク瞬断やカメラ側のセッションタイムアウト) ので、
+        voice_loop を常駐させるには自動再接続が必須。
+        """
+        backoff_sec = 1.0
         while not self._stop.is_set():
+            if self._proc is None or self._proc.stdout is None:
+                self._spawn_ffmpeg()
+                assert self._proc is not None and self._proc.stdout is not None
+
             data = self._proc.stdout.read(self.chunk_bytes)
             if not data:
-                break
+                # EOF: ffmpeg が終了 (RTSP 切断 or エラー)
+                err = ""
+                try:
+                    if self._proc.stderr is not None:
+                        err = self._proc.stderr.read(4096).decode("utf-8", errors="replace").strip()
+                except Exception:
+                    pass
+                rc = self._proc.poll()
+                print(
+                    f"[RtspPcmReader] ffmpeg 終了 (returncode={rc}). {backoff_sec:.1f}s 後に再接続します"
+                    + (f" / stderr: {err[:300]}" if err else "")
+                )
+                try:
+                    self._proc.terminate()
+                    self._proc.wait(timeout=2)
+                except Exception:
+                    pass
+                self._proc = None
+                # 再接続待機 (長引く切断に備えて指数バックオフ、上限 10 秒)
+                time.sleep(backoff_sec)
+                backoff_sec = min(backoff_sec * 1.5, 10.0)
+                continue
+
+            # データが読めたのでバックオフをリセット
+            backoff_sec = 1.0
+
             if self.gain != 1.0:
                 data = self._apply_gain(data)
             try:

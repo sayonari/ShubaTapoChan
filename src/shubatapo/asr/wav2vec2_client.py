@@ -88,6 +88,10 @@ class SlidingWindowASR(ASRClient):
         self._last_partial: str = ""
         # 確定テキストの発話開始時刻候補 (空→非空に切り替わった時刻)
         self._utterance_start_ts: float | None = None
+        # 窓ごとの partial を時刻付きで全保存。VAD 発話末検出時に
+        # 指定区間を間引いて LLM に投げるための素材として voice_loop が吸い出す。
+        # 4分 (stride 200ms × 1200 = 240 秒) 分を保持。対話の 1 ターンは通常 10 秒以内なので余裕。
+        self._partial_log: collections.deque[tuple[float, str]] = deque(maxlen=1200)
 
     # ------------------------------------------------------------------
     # public API
@@ -176,17 +180,35 @@ class SlidingWindowASR(ASRClient):
 
     def _handle_window_text(self, text: str) -> None:
         """窓ごとのテキストを Dedup に通し、確定したら ASRResult キューに積む。"""
+        ts = self._current_ts()
+        stripped = text.strip()
+
+        # 時刻付き partial ログへ蓄積 (非空のみ)
+        if stripped:
+            self._partial_log.append((ts, stripped))
+
         # 発話開始時刻の候補を覚えておく
-        if text.strip() and self._utterance_start_ts is None:
+        if stripped and self._utterance_start_ts is None:
             # この窓の終端（現在時刻）から窓長を引いた時刻を近似開始時刻とする
-            self._utterance_start_ts = self._current_ts() - self.window_sec
+            self._utterance_start_ts = ts - self.window_sec
 
         self._last_partial = text
         if os.environ.get("SHUBATAPO_ASR_DEBUG"):
-            print(f"[ASR partial @ {self._current_ts():6.2f}s] {text!r}")
+            print(f"[ASR partial @ {ts:6.2f}s] {text!r}")
         finalized = self._dedup.push(text)
         if finalized is not None:
             self._emit_final(finalized)
+
+    # ------------------------------------------------------------------
+    # partial 抽出 (voice_loop が VAD 発話末時に呼び出す)
+    # ------------------------------------------------------------------
+    def get_partials_between(self, start_ts: float, end_ts: float) -> list[tuple[float, str]]:
+        """指定区間 [start_ts, end_ts] 内の (時刻, テキスト) 一覧を時系列順で返す。"""
+        return [(ts, t) for ts, t in self._partial_log if start_ts <= ts <= end_ts]
+
+    @property
+    def current_ts(self) -> float:
+        return self._current_ts()
 
     def _emit_final(self, text: str) -> None:
         end_ts = self._current_ts()

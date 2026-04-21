@@ -104,18 +104,32 @@ $SSH "$HOST" "ls -1 ${REMOTE_DIR}/turn_*.wav 2>/dev/null | xargs -n1 basename 2>
 echo "[runner] 待機中。TAPO に話しかけてください。Ctrl-C で終了。"
 # SSH 接続を事前に張っておく（ControlMaster の socket 初期化）
 $SSH -fN "$HOST" 2>/dev/null || true
+
+# ノイズ誤認識などで古いターンの応答が溜まると、再生が遅延して体感が悪化する。
+# 各ポーリングで「最新ターン」を判定し、それより古いターンは再生せず skip する。
 while true; do
   # リモートの全 WAV を名前昇順で取得。turn_001_ack < turn_001_main < turn_002_ack ... の順になる。
   remote_list=$($SSH "$HOST" "ls -1 ${REMOTE_DIR}/turn_*.wav 2>/dev/null | xargs -n1 basename 2>/dev/null" 2>/dev/null || true)
   if [ -n "$remote_list" ]; then
+    # 最新ターン番号 (例: turn_020_main.wav → 020)
+    latest_turn=$(echo "$remote_list" | sed -n 's/^turn_\([0-9][0-9]*\)_.*/\1/p' | sort -n | tail -1)
     while IFS= read -r base; do
       [ -z "$base" ] && continue
-      if ! grep -Fxq "$base" "$PLAYED_FILE"; then
-        $SCP -q "${HOST}:${REMOTE_DIR}/$base" "$LOCAL_DIR/$base"
-        echo "$base" >> "$PLAYED_FILE"
-        echo "[runner] 再生: $base"
-        afplay "$LOCAL_DIR/$base"
+      if grep -Fxq "$base" "$PLAYED_FILE"; then
+        continue
       fi
+      # ファイル名から turn 番号抽出
+      base_turn=$(echo "$base" | sed -n 's/^turn_\([0-9][0-9]*\)_.*/\1/p')
+      if [ -n "$latest_turn" ] && [ -n "$base_turn" ] && [ "$base_turn" != "$latest_turn" ]; then
+        # 古いターンはダウンロードも再生もせず「再生済」扱いでスキップ
+        echo "$base" >> "$PLAYED_FILE"
+        echo "[runner] skip (古いターン): $base (最新=$latest_turn)"
+        continue
+      fi
+      $SCP -q "${HOST}:${REMOTE_DIR}/$base" "$LOCAL_DIR/$base"
+      echo "$base" >> "$PLAYED_FILE"
+      echo "[runner] 再生: $base"
+      afplay "$LOCAL_DIR/$base"
     done <<< "$remote_list"
   fi
   sleep 0.3

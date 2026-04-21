@@ -22,6 +22,7 @@
 """
 from __future__ import annotations
 
+import math
 import os
 import random
 import shutil
@@ -29,6 +30,8 @@ import signal
 import time
 from collections import deque
 from pathlib import Path
+
+import numpy as np
 
 from shubatapo.asr.vad import VADGate
 from shubatapo.audio import RtspPcmReader, TapoSpeakerClient
@@ -107,12 +110,46 @@ def _main_wav2vec2() -> int:
           f"min_speech={VAD_MIN_SPEECH_MS}ms / max={VAD_MAX_UTTERANCE_MS}ms)。"
           f"話しかけてみてください。Ctrl-C で終了。")
 
+    # ハートビート: 5 秒おきに chunk 数 / 平均 RMS / VAD 状態 を出す。
+    # これにより「音声が届いてないのか」「VAD が反応してないのか」が切り分く。
+    hb_interval = 5.0
+    hb_last = time.time()
+    hb_chunks = 0
+    hb_rms_sum = 0.0
+    hb_rms_n = 0
+    hb_peak = 0
+
     turn = 0
     try:
         while not stop_flag["stop"]:
             pcm = reader.read_chunk(timeout=0.5)
+
+            # --- ハートビート出力 -------------------------------------
+            now = time.time()
+            if now - hb_last >= hb_interval:
+                avg_rms = hb_rms_sum / hb_rms_n if hb_rms_n else 0.0
+                print(
+                    f"[hb] chunks={hb_chunks} avg_rms={avg_rms:6.1f} peak={hb_peak:5d} "
+                    f"vad_in_speech={vad._in_speech} speech_ms={vad._speech_ms} silence_ms={vad._silence_ms}"
+                )
+                hb_last = now
+                hb_chunks = 0
+                hb_rms_sum = 0.0
+                hb_rms_n = 0
+                hb_peak = 0
+
             if not pcm:
                 continue
+            hb_chunks += 1
+            # RMS / peak を集計
+            arr = np.frombuffer(pcm, dtype=np.int16)
+            if arr.size:
+                rms = float(np.sqrt(np.mean(arr.astype(np.float32) ** 2)))
+                hb_rms_sum += rms
+                hb_rms_n += 1
+                peak = int(np.max(np.abs(arr)))
+                if peak > hb_peak:
+                    hb_peak = peak
 
             # ASR は裏で partial を溜め続ける（確定は待たない）
             asr.feed_pcm(pcm)
